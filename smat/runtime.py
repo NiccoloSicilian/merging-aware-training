@@ -15,6 +15,11 @@ from typing import Any, Iterator
 _EXPERIMENT_MODULES = {
     "trace_llm": "smat.experiments.trace_llm",
     "clip8_vit": "smat.experiments.clip8_vit",
+    # Same benchmark as clip8_vit on an open_clip backbone. The two are not
+    # interchangeable: open_clip fuses q/k/v into one 2304x768 matrix and keeps
+    # the output projection inside the visual tower, so a method that acts per
+    # matrix sees a different tensor set.
+    "clip8_openclip": "smat.experiments.clip8_openclip",
 }
 
 

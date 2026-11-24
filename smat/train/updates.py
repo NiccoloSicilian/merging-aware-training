@@ -182,11 +182,20 @@ def validate_settings(settings):
     }
     operators = {"scale", "mask", "perturb", "backend", "offload_base", "smat"}
     method = settings.get("method")
-    if method not in {"ft", "smat"}:
-        raise ValueError("train.method must be ft or smat")
-    unknown = set(settings) - common - (operators if method == "smat" else set())
+    if method not in {"ft", "smat", "subspace"}:
+        raise ValueError("train.method must be ft, smat or subspace")
+    extra: set[str] = set()
+    if method == "smat":
+        extra = operators
+    elif method == "subspace":
+        extra = {"subspace", "label_smoothing", "loss_temperature"}
+    unknown = set(settings) - common - extra
     if unknown:
         raise ValueError(f"unsupported training options: {sorted(unknown)}")
+    if method == "subspace":
+        from .subspace import validate as validate_subspace
+
+        validate_subspace(settings)
 
 
 def build_stepper(
@@ -201,7 +210,11 @@ def build_stepper(
     """Construct only the two released methods; reject unsupported recipes."""
     validate_settings(settings)
     method = settings.get("method")
-    if method == "ft":
+    if method in {"ft", "subspace"}:
+        # Once each matrix is reparametrised as W = W_0 + U C V^T the update
+        # rule is ordinary: the constraint lives in the parametrisation, not in
+        # the step. The optimizer therefore sees only the cores, which the
+        # common trainer has already selected.
         return FTStepper(named_parameters, optimizer)
     if method == "smat":
         return SMATStepper(

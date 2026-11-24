@@ -21,6 +21,27 @@ Junzhuo Li², Zihao Wang³, Hongxia Yang<sup>1,4,5,†</sup>**
 Training, merging and evaluation code for FT and SMAT with Llama-1B/8B and
 CLIP ViT-B/32/L/14. Supported mergers: WA, TA, TIES, DARE and DELLA.
 
+## About this repository
+
+This is a fork of [egangu/smat](https://github.com/egangu/smat), the official
+SMAT implementation, kept intact so its published results stay reproducible.
+It adds a third expert-training method, `train.method = "subspace"`, and a
+second vision backbone:
+
+- **Subspace-constrained training** (`smat/train/subspace.py`): every 2-D
+  weight is reparametrised as `W = W_0 + U C V^T`, with `U` and `V` frozen
+  bases derived from gradient statistics before training and `C` the only
+  trainable tensor. Where SMAT changes the update rule, this changes the
+  hypothesis space. See
+  [RUNNING.md](docs/RUNNING.md#subspace-constrained-training).
+- **open_clip backbone** (`smat/experiments/clip8_openclip.py`): the same eight
+  tasks and protocol on open_clip instead of HF `CLIPModel`, which keeps the
+  attention projection fused and the output projection trainable. See
+  [RUNNING.md](docs/RUNNING.md#open_clip-backbone).
+
+Everything below this section is the upstream README. The upstream code is MIT
+licensed; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
 ## Overview
 
 Fine-tuning an expert on its own task does not ensure that it will work well after

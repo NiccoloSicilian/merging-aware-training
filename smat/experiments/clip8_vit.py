@@ -317,6 +317,34 @@ def _preprocess_key(config: Mapping[str, Any]) -> str:
     return _hf_model_source(config)
 
 
+def _require_quick_gelu(model_config: Any, source: str) -> None:
+    """Fail loudly when the vision tower is not configured for QuickGELU.
+
+    The OpenAI CLIP weights were trained with QuickGELU, and the published
+    ``openai/clip-vit-*`` configs record ``hidden_act: quick_gelu`` so that
+    ``CLIPMLP`` picks it up. Nothing enforces it, though: a config carrying
+    plain GELU loads the same tensors and trains without error, it simply
+    evaluates several points lower. That is invisible in a loss curve and only
+    shows up as a weaker benchmark, so it is checked here rather than trusted.
+    """
+
+    vision = getattr(model_config, "vision_config", None)
+    activation = getattr(vision, "hidden_act", None) if vision is not None else None
+    if activation is None:
+        raise ValueError(
+            f"{source} exposes no vision_config.hidden_act; this backend "
+            f"expects a Hugging Face CLIP configuration"
+        )
+    if str(activation) != "quick_gelu":
+        raise ValueError(
+            f"{source} sets vision_config.hidden_act={activation!r}, but the "
+            f"OpenAI CLIP weights were trained with QuickGELU. Loading them "
+            f"under plain GELU costs several accuracy points without raising "
+            f"an error. Use the published openai/clip-vit-* revision, or set "
+            f'"hidden_act": "quick_gelu" in that model\'s config.json.'
+        )
+
+
 def _build_hf_model(config: Mapping[str, Any]) -> _ClipModelParts:
     """Load the local FusionBench CLIP and freeze every non-vision component."""
 
@@ -328,6 +356,7 @@ def _build_hf_model(config: Mapping[str, Any]) -> _ClipModelParts:
         ) from error
     source = _hf_model_source(config)
     full_model = CLIPModel.from_pretrained(source, local_files_only=True)
+    _require_quick_gelu(full_model.config, source)
     image_processor = AutoImageProcessor.from_pretrained(source, local_files_only=True)
     tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
     # Published FusionBench experts swap only vision_model.  The text tower,

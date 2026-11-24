@@ -280,6 +280,26 @@ def train(config: Mapping[str, Any], task: str, max_samples: int | None = None) 
     named_parameters = _named_parameters(module, run_config, model)
     loss_function = runtime.require(module, "loss")
     save_model = runtime.require(module, "save_model")
+    # The subspace must be installed before the optimizer is built: it freezes
+    # every covered weight and exposes the cores instead, and an optimizer
+    # created over the original tensors would hold references to parameters
+    # that no longer move.
+    from .subspace import prepare as prepare_subspace
+
+    subspace = prepare_subspace(
+        settings,
+        run_config,
+        task,
+        training_model,
+        named_parameters,
+        loader,
+        loss_function,
+        _device(run_config),
+        seed,
+        runtime.work_root(config) / "bases" / runtime.run_name(config),
+    )
+    if subspace is not None:
+        named_parameters = subspace.trainable_named_parameters(named_parameters)
     optimizer = build_optimizer(settings, named_parameters)
     from .noise import block_linear_parameter_names, embedding_parameter_names
 
@@ -356,9 +376,12 @@ def train(config: Mapping[str, Any], task: str, max_samples: int | None = None) 
                 if monitor
                 else None
             )
+            # ||Delta||_F = ||C||_F because U and V are orthonormal, so this is
+            # a free check that the subspace update is actually moving.
+            core = f" ||C||={subspace.core_norm():.4f}" if subspace else ""
             print(
                 f"task={task} epoch={epoch} step={step}/{total_steps} "
-                f"loss={value:.5f} lr={lr:.3e}"
+                f"loss={value:.5f} lr={lr:.3e}" + core
                 + (
                     f" sec/step={row['seconds_per_step']:.4f} eta={row['eta_seconds']:.1f}s"
                     if row
@@ -375,6 +398,14 @@ def train(config: Mapping[str, Any], task: str, max_samples: int | None = None) 
     elapsed_seconds = time.monotonic() - started
     loop_elapsed_seconds = elapsed_seconds
     saved = runtime.checkpoint_path(module, config, output_dir)
+    subspace_metadata = None
+    if subspace is not None:
+        # Fold U C V^T into the weights before saving. An expert is a plain
+        # state dict here and the merge kernels diff tensors by name, so a
+        # saved parametrisation would rename every covered matrix.
+        subspace_metadata = subspace.metadata()
+        subspace_metadata["core_norm"] = subspace.core_norm()
+        subspace.materialise()
     if context.is_rank_zero:
         save_started = time.monotonic()
         save_model(model, partial_output)
@@ -410,6 +441,8 @@ def train(config: Mapping[str, Any], task: str, max_samples: int | None = None) 
             metadata["peak_memory_reserved_bytes"] = torch.cuda.max_memory_reserved(
                 device
             )
+        if subspace_metadata is not None:
+            metadata["subspace"] = subspace_metadata
         if hasattr(stepper, "smat"):
             metadata["smat"] = stepper.smat.metadata()
         if getattr(stepper, "fused_smat", None) is not None:

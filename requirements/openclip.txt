@@ -1,0 +1,10 @@
+# Only needed for the clip8_openclip experiment, which runs the vision
+# benchmark on an open_clip backbone instead of HF CLIPModel.
+#
+# The version matters. open-clip-torch 2.0.x applied QuickGELU implicitly for
+# pretrained="openai", so a recipe written against it and run on a current
+# release would quietly switch to plain GELU and score several points lower.
+# Current releases decide from the architecture name, which is why the
+# configurations here say ViT-B-32-quickgelu and the backend refuses the
+# OpenAI weights under any name without it.
+open-clip-torch==2.32.0
